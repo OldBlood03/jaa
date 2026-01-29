@@ -1,69 +1,85 @@
-#include <libssh/libssh.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <assert.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <stdlib.h>
-#include "client.c"
-#include "host.c"
+#include "distribute.c"
+#include<unistd.h>
+#include<getopt.h>
+#include<assert.h>
+#define SHIFT() (argc--, *(argv++))
 
-#define SHIFT() (assert(argc > 0), argc--, *(argv++))
-
-const char *hosts[] = {
-    "smith.org.aalto.fi", 
-    "befunge",
-    "bit",
-    "bogo",
-    "brainfuck",
-    "deadfish",
-    "emo",
-    "entropy",
-    "false",
-    "fractran",
-    "fugue",
-    "glass",
-    "haifu",
-    "headache",
-    "intercal",
-    "malbolge",
-    "numberwang",
-    "ook",
-    "piet",
-    "regexpl",
-    "remorse",
-    "rename",
-    "shakespeare",
-    "smith",
-    "smurf",
-    "spaghetti",
-    "thue",
-    "unlambda",
-    "wake",
-    "whenever",
-    "whitespace",
-    "zombie",
+const char *host_names[] = {
 };
 
-const char username[] = "longhuo1";
+void print_help()
+{
+    printf(
+    "--file <arg>\n"
+    "\tassigns file <arg> as the file containing the list of host SSH addresses\n"
+    "\tfile must have each address separated by a new-line\n"
+    "--usr <arg>\n"
+    "\tassigns <arg> as the login user for all hosts"
+    "--cmd <arg>\n"
+    "\tassigns <arg> as the cmd to be executed on all hosts"
+    "-h\n"
+    "\tprint help information\n"
+    );
+}
 
 int main(int argc, char *argv[])
 {
-    char *arg = SHIFT();
-    arg = SHIFT();
+    bool has_filename = false;
+    bool has_username = false;
+    bool has_cmd = false;
 
-    printf("arguments used: %s\n", arg);
-    if (strcmp(arg, "-c") == 0)
+    extern char *optarg;
+    const struct option options[] = {
+        {.name = "file", .has_arg = 1, .flag = 0, .val = 'f'},
+        {.name = "usr" , .has_arg = 1, .flag = 0, .val = 'u'},
+        {.name = "cmd" , .has_arg = 1, .flag = 0, .val = 'c'},
+        {.name = "help", .has_arg = 0, .flag = 0, .val = 'h'},
+    };
+
+    while(1)
     {
-        ssh_session session = connect_to_host(username, host);
-        ssh_channel channel = open_channel(session);
-        read_channel(channel);
-        ssh_disconnect(session);
-        ssh_free(session);
+        int rc = getopt_long(argc, argv, "h:f", options, NULL);
+        if (rc == -1) break;
+
+        switch (rc)
+        {
+            case 'f':
+                init_hosts_from_file(optarg);
+                has_filename = true;
+                break;
+            case 'u':
+                init_username(optarg);
+                has_username = true;
+                break;
+            case 'c':
+                init_cmd(optarg);
+                has_cmd = true;
+                break;
+            case 'h':
+                print_help();
+                return 0;
+            default:
+                break;
+        }
     }
-    else if (strcmp(arg, "-h") == 0)
+
+    if (!has_username)
     {
-        read_port(5000);
+        fprintf(stderr, "no username to be distributed. did you forget to use --usr <arg>?");
+        return -1;
     }
+    if (!has_filename)
+    {
+        fprintf(stderr, "no filename provided. did you forget to use --file <arg>?");
+        return -1;
+    }
+    if (!has_cmd)
+    {
+        fprintf(stderr, "no command to be distributed. did you forget to use --cmd <arg>?");
+        return -1;
+    }
+
+    distribute();
+    unregister_all_hosts();
     return 0;
 }
