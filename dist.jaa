@@ -1,0 +1,19 @@
+[hosts]
+befunge.org.aalto.fi
+bit.org.aalto.fi
+bogo.org.aalto.fi
+brainfuck.org.aalto.fi
+
+[username]
+longhuo1 // comment
+
+[cmd]
+python3 test.py
+
+[args]
+args
+args
+args
+
+[path]
+/m/home/home6/69/longhuo1/unix/projects/ssh-distribute

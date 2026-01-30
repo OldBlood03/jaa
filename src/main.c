@@ -1,85 +1,93 @@
 #include "distribute.c"
 #include<unistd.h>
+#include<errno.h>
 #include<getopt.h>
+#include<dirent.h>
 #include<assert.h>
-#define SHIFT() (argc--, *(argv++))
+#define SHIFT() (assert(argc > 0), argc--, *(argv++))
 
-const char *host_names[] = {
-};
+//for config file
+#define FILE_SUFFIX     ".jaa"
 
-void print_help()
+static char help[] =
+    "--file or -f <arg>"
+    "\n"
+    "\tassigns file <arg> as the config file containing the information on how the cmd"
+    "is to be distributed"
+    "\n"
+    "-h"
+    "\n"
+    "\tprint help information"
+    "\n";
+
+int find_config_file(char *filename_out, size_t capacity)
 {
-    printf(
-    "--file <arg>\n"
-    "\tassigns file <arg> as the file containing the list of host SSH addresses\n"
-    "\tfile must have each address separated by a new-line\n"
-    "--usr <arg>\n"
-    "\tassigns <arg> as the login user for all hosts"
-    "--cmd <arg>\n"
-    "\tassigns <arg> as the cmd to be executed on all hosts"
-    "-h\n"
-    "\tprint help information\n"
-    );
+    if(getcwd(filename_out, capacity) == NULL)
+    {
+        perror("error getting current directory");
+        return 0;
+    }
+    DIR *dir;
+    struct dirent *ent;
+    if ((dir = opendir (filename_out)) == NULL) {
+        perror("error reading contents of directory");
+        closedir (dir);    
+        return 0;
+    }
+
+    while ((ent = readdir (dir)) != NULL) {
+        size_t filename_len = strlen(ent->d_name);
+        size_t suffix_len   = strlen(FILE_SUFFIX);
+        if (strcmp(&ent->d_name[filename_len - suffix_len], FILE_SUFFIX) == 0)
+        {
+            strcpy(filename_out, ent->d_name);
+            closedir(dir);
+            return 1;
+        }
+    }
+    closedir (dir);    
+    return 0;
 }
 
 int main(int argc, char *argv[])
 {
-    bool has_filename = false;
-    bool has_username = false;
-    bool has_cmd = false;
 
     extern char *optarg;
     const struct option options[] = {
         {.name = "file", .has_arg = 1, .flag = 0, .val = 'f'},
-        {.name = "usr" , .has_arg = 1, .flag = 0, .val = 'u'},
-        {.name = "cmd" , .has_arg = 1, .flag = 0, .val = 'c'},
         {.name = "help", .has_arg = 0, .flag = 0, .val = 'h'},
     };
 
+    int  rc;
+    bool got_option = false;
     while(1)
     {
-        int rc = getopt_long(argc, argv, "h:f", options, NULL);
+        rc = getopt_long(argc, argv, "hf:", options, NULL);
         if (rc == -1) break;
-
-        switch (rc)
+        switch(rc)
         {
             case 'f':
-                init_hosts_from_file(optarg);
-                has_filename = true;
-                break;
-            case 'u':
-                init_username(optarg);
-                has_username = true;
-                break;
-            case 'c':
-                init_cmd(optarg);
-                has_cmd = true;
+                rc = init_config_from_file(optarg);
+                got_option = true;
                 break;
             case 'h':
-                print_help();
+                printf("%s", help);
+                got_option = true;
                 return 0;
-            default:
-                break;
         }
     }
 
-    if (!has_username)
+    if (!got_option)
     {
-        fprintf(stderr, "no username to be distributed. did you forget to use --usr <arg>?");
-        return -1;
-    }
-    if (!has_filename)
-    {
-        fprintf(stderr, "no filename provided. did you forget to use --file <arg>?");
-        return -1;
-    }
-    if (!has_cmd)
-    {
-        fprintf(stderr, "no command to be distributed. did you forget to use --cmd <arg>?");
-        return -1;
+        char filename[MAX_PATH_LEN];
+        if (!find_config_file(filename, MAX_PATH_LEN))
+        {
+            fprintf(stderr, "did not find config file in current directory\n");
+            return -1;
+        }
+        rc = init_config_from_file(filename);
     }
 
     distribute();
-    unregister_all_hosts();
     return 0;
 }
