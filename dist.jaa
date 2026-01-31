@@ -1,19 +1,54 @@
 [hosts]
 befunge.org.aalto.fi
-bit.org.aalto.fi
-bogo.org.aalto.fi
-brainfuck.org.aalto.fi
+//bit.org.aalto.fi
+//bogo.org.aalto.fi
+//brainfuck.org.aalto.fi
+//deadfish.org.aalto.fi
+//emo.org.aalto.fi
+//entropy.org.aalto.fi
+//false.org.aalto.fi
+//fractran.org.aalto.fi
+//fugue.org.aalto.fi
+//glass.org.aalto.fi
+//haifu.org.aalto.fi
+//headache.org.aalto.fi
+//intercal.org.aalto.fi
+//malbolge.org.aalto.fi
+//numberwang.org.aalto.fi
+//ook.org.aalto.fi
+//piet.org.aalto.fi
+//regexpl.org.aalto.fi
+//remorse.org.aalto.fi
+//rename.org.aalto.fi
+//shakespeare.org.aalto.fi
+//smith.org.aalto.fi
+//smurf.org.aalto.fi
+//spaghetti.org.aalto.fi
+//thue.org.aalto.fi
+//unlambda.org.aalto.fi
+//wake.org.aalto.fi
+//whenever.org.aalto.fi
+//whitespace.org.aalto.fi
+//zombie.org.aalto.fi
 
 [username]
-longhuo1 // comment
+    //ok
+//ok
+longhuo1
+//hello
+        //hello
 
 [cmd]
 python3 test.py
-
-[args]
-args
-args
-args
+        //hello
 
 [path]
 /m/home/home6/69/longhuo1/unix/projects/ssh-distribute
+[args]
+arg
+arg
+arg
+    //comments
+//comment
+    //comment
+//[logfile]

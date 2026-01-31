@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
         }
         rc = init_config_from_file(filename);
     }
-
+    if (rc != SSH_OK) return -1;
     distribute();
     return 0;
 }
