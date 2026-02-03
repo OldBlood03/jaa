@@ -1,0 +1,4 @@
+leak:libgssapi_krb5.so
+leak:libkrb5.so
+leak:libkrb5support.so
+leak:ssh_userauth_gssapi

@@ -40,7 +40,6 @@ static void fill_table(char with)
             table.rows[i][j] = with;
         }
     }
-
 }
 
 void table_init(table_style style, int n_slates, int n_entries)
@@ -284,6 +283,28 @@ void table_slate_vprintf(int slate_index, int entry_index, const char *fmt, va_l
         table.rows[row][cursor] = ' ';
     }
     table.rows[row][cursor] = '|';
+}
+
+void table_slate_print_progress(int slate_index, int entry_index, float progress)
+{
+    int capacity = table.slates[slate_index].visible_capacity[entry_index] - 5; //TODO:find out why the 5 is here. I don't even know
+    if (progress > 1.00) progress = 1.00;
+    if (progress < 0.00) progress = 0.00;
+    int fill = progress * capacity;
+
+    table_slate_printf(slate_index, entry_index, "[");
+
+    int i = 0;
+    for (;i < fill; i++)
+    {
+        table_slate_printf(slate_index, entry_index, "#");
+    }
+    for(;i < capacity; i++)
+    {
+        table_slate_printf(slate_index, entry_index, " ");
+    }
+
+    table_slate_printf(slate_index, entry_index, "]");
 }
 
 void table_flush()

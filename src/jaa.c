@@ -28,16 +28,13 @@
     #error PROGRESS_START should != PROGRESS_END but does
 #endif
 
-#define PBAR_LEN 40
-static char pbar [PBAR_LEN] = "########################################";
-static char empty[PBAR_LEN] = "                                        ";
-
 #define TABLE_ENTRY_HEADER    0
 #define TABLE_ENTRY_PROGRESS  1 
 #define TABLE_ENTRY_ERROR_MSG 2
 #define TABLE_ENTRY_STDOUT    3
 #define TABLE_ENTRY_STDERR    4
-#define TABLE_ENTRY_N_ENTRIES 5
+#define TABLE_ENTRY_PROCESS   5 
+#define TABLE_ENTRY_N_ENTRIES 6
 
 static struct {
     int  n_args;
@@ -207,8 +204,11 @@ int init_config_from_file(const char *filename)
 
                 host *h = &config.pool[config.n_hosts];
                 strcpy(h->addr, ptr);
+                h->log_fp = NULL;
                 memset(h->exit_codes, 0, MAX_ADDR_LEN * sizeof(*h->exit_codes));
                 h->n_exits = 0;
+                h->progress_num = 0;
+                h->progress_denom = 0;
                 h->id = config.n_hosts;
                 h->is_busy = false;
                 h->is_usable = false;
@@ -290,7 +290,13 @@ int init_config_from_file(const char *filename)
                     fclose(fp);
                     return SSH_ERROR;
                 }
-                strcpy(config.relpath, ptr);
+                h->log_fp = fopen(ptr, "wx");
+                if (h->log_fp == NULL)
+                {
+                    perror("failed to create log file. aborting.\nreason");
+                    fclose(fp);
+                    return SSH_ERROR;
+                }
                 break;
         }
     }
@@ -308,6 +314,20 @@ int init_config_from_file(const char *filename)
         return SSH_ERROR;
     }
     if (process_queue.n_args == 0)  process_queue.n_args = config.n_hosts;
+
+    int non_null_lfps = 0;
+    for (int i = 0; i < config.n_hosts; i++)
+        non_null_lfps += config.pool[i].log_fp == NULL ? 0 : 1;
+
+    if (non_null_lfps > 0 && non_null_lfps != config.n_hosts)
+    {
+        fprintf(stderr,
+                "the number of log files supplied: %d does not match the number of hosts: %d\n",
+                non_null_lfps, config.n_hosts);
+
+        fclose(fp);
+        return SSH_ERROR;
+    }
 
     fclose(fp);
     return SSH_OK;
@@ -547,27 +567,43 @@ static void host_exec(host *h, const char *args)
 
 void host_read_io(host *h)
 {
-    int rc;
+    int n_bytes;
     ssh_channel channel = h->channel;
     if (!ssh_channel_is_open(channel)) return;
 
-    rc = ssh_channel_read(channel, h->stdout_buffer, sizeof(h->stdout_buffer) - 1, 0);
-    if (rc == SSH_ERROR) return;
 
-    rc = ssh_channel_read(channel, h->stderr_buffer, sizeof(h->stderr_buffer) - 1, 1);
-    if (rc == SSH_ERROR) return;
+    n_bytes = ssh_channel_read(channel, h->stdout_buffer, sizeof(h->stdout_buffer) - 1, 0);
+    if (n_bytes == SSH_ERROR) return;
+    h->stdout_buffer[n_bytes] = '\0';
+
+    n_bytes = ssh_channel_read(channel, h->stderr_buffer, sizeof(h->stderr_buffer) - 1, 1);
+    if (n_bytes == SSH_ERROR) return;
+    h->stderr_buffer[n_bytes] = '\0';
     return;
+}
+
+void host_save_io(const host *h)
+{
+    if (h->log_fp == NULL) return;
+    fprintf(h->log_fp, "stdout: %s", h->stdout_buffer);
+    fprintf(h->log_fp, "stderr: %s", h->stderr_buffer);
+    if (ferror(h->log_fp))
+    {
+        host_printf(*h, "failed to write to log file");
+        return;
+    }
+    fflush(h->log_fp);
 }
 
 static void host_print_io(const host *h)
 {
 
     table_slate_clear(h->id, TABLE_ENTRY_STDOUT);
-    table_slate_printf(h->id, TABLE_ENTRY_STDOUT, h->stdout_buffer);
+    table_slate_printf(h->id, TABLE_ENTRY_STDOUT, "stdout: %s", h->stdout_buffer);
 
     table_slate_clear(h->id, TABLE_ENTRY_STDERR);
     table_slate_printf(h->id, TABLE_ENTRY_STDERR, ANSI_RED);
-    table_slate_printf(h->id, TABLE_ENTRY_STDERR, h->stderr_buffer);
+    table_slate_printf(h->id, TABLE_ENTRY_STDERR, "stderr: %s", h->stderr_buffer);
     table_slate_printf(h->id, TABLE_ENTRY_STDERR, ANSI_WHITE);
 }
 
@@ -606,14 +642,14 @@ static void host_parse_progress_from_io(host *h)
 
 static void host_print_progress(const host *h)
 {
-    if (h->progress_denom == 0) return;
-    float progress = (float) h->progress_num / h->progress_denom;
-    if (progress > 1.00) progress = 1.00;
-    if (progress < 0.00) progress = 0.00;
-    const int fill = (float)progress*PBAR_LEN;
-    const int remaining = PBAR_LEN - fill;
     table_slate_clear(h->id, TABLE_ENTRY_PROGRESS);
-    table_slate_printf(h->id, TABLE_ENTRY_PROGRESS, "[%.*s%.*s] %d/%d", fill, pbar, remaining, empty, h->progress_num, h->progress_denom);
+    if (h->progress_denom > 0)
+    {
+        float progress = (float) h->progress_num / h->progress_denom;
+        table_slate_print_progress(h->id, TABLE_ENTRY_PROGRESS, progress);
+    }
+    else 
+        table_slate_print_progress(h->id, TABLE_ENTRY_PROGRESS, 0);
 }
 
 void remove_unusable_hosts()
@@ -624,32 +660,35 @@ void remove_unusable_hosts()
         {
             host_free(config.pool[i]);
             config.n_hosts--;
-            for (int j = i; j < config.n_hosts - 1; j++)
+            for (int j = i; j < config.n_hosts; j++)
             {
                 config.pool[j] = config.pool[j+1];
                 config.pool[j].id--;
             }
+            i--;
         }
     }
 }
 
 void distribute(table_style style)
 {
-    table_init(style, config.n_hosts,TABLE_ENTRY_N_ENTRIES);
+    table_init(style, config.n_hosts, TABLE_ENTRY_N_ENTRIES);
     table_flush();
 
-    for (int i = config.n_hosts - 1; i >= 0; i--) 
+    for (int i = 0; i < config.n_hosts; i++) 
     {
         table_slate_printf(config.pool[i].id, TABLE_ENTRY_HEADER, config.pool[i].addr);
         host_new(&config.pool[i]);
         table_clear();
         table_flush();
     }
-    table_clear();
+
     remove_unusable_hosts();
+
+    table_clear();
     table_init(style, config.n_hosts,TABLE_ENTRY_N_ENTRIES);
     table_flush();
-    for (int i = config.n_hosts - 1; i >= 0; i--) 
+    for (int i = 0; i < config.n_hosts; i++) 
     {
         table_slate_printf(config.pool[i].id, TABLE_ENTRY_HEADER, config.pool[i].addr);
         table_clear();
@@ -660,7 +699,7 @@ void distribute(table_style style)
     while (!done)
     {
         done = true;
-        for (int i = config.n_hosts - 1; i >= 0; i--)
+        for (int i = 0; i < config.n_hosts; i++)
         {
             host *h = &config.pool[i];
 
@@ -684,14 +723,17 @@ void distribute(table_style style)
             }
 
             host_read_io(h);
+            host_save_io(h);
             host_print_io(h);
             host_parse_progress_from_io(h);
             host_print_progress(h);
             table_clear();
+            sleep(0.2);
             table_flush();
         }
     }
-    for (int i = config.n_hosts; i < config.n_hosts; i++)
+
+    for (int i = 0; i < config.n_hosts; i++)
     {
         host_free(config.pool[i]);
     }

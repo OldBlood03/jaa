@@ -1,10 +1,7 @@
 #include "jaa.h"
 #include <unistd.h>
 #include <stdio.h>
-#include <errno.h>
 #include <getopt.h>
-#include <assert.h>
-#define SHIFT() (assert(argc > 0), argc--, *(argv++))
 
 static char help[] =
     "--file or -f <arg>"
@@ -64,20 +61,10 @@ int main(int argc, char *argv[])
     .v_padding = 0,
     .h_padding = 10,
     .v_sep = '|',
-    .h_sep = '#',
+    .h_sep = '^',
     .heading_sep = '.',
     };
 
     distribute(style);
-    //table_init(style, 4, 4);
-    //table_slate_printf(0,0, "hello");
-    //table_flush();
-    //sleep(1);
-    //table_slate_printf(0,0, "goodbye");
-    //table_slate_clear(0,0);
-    //table_slate_printf(0,0, "goodbye");
-    //table_clear();
-    //table_flush();
-
     return 0;
 }

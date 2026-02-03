@@ -1,6 +1,7 @@
 #ifndef JAA
 #define JAA
 #include <libssh/libssh.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include "table.h"
 
@@ -16,9 +17,9 @@ typedef struct host {
     ssh_session session;
     ssh_channel channel;
 
-    char addr       [MAX_ADDR_LEN];
-    char log_file   [MAX_PATH_LEN];
-    int  exit_codes [MAX_ARG_LEN];
+    char addr         [MAX_ADDR_LEN];
+    FILE *log_fp;
+    int  exit_codes   [MAX_ARG_LEN];
     char stdout_buffer[STDOUT_CAPACITY];
     char stderr_buffer[STDOUT_CAPACITY];
 

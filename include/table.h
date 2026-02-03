@@ -43,6 +43,7 @@ void table_init(table_style style, int n_slates, int n_entries_per_slate);
 void table_slate_printf(int slate_index, int entry_index, const char *fmt, ...);
 void table_slate_vprintf(int slate_index, int entry_index, const char *fmt, va_list args);
 void table_slate_clear(int slate_index, int entry_index);
+void table_slate_print_progress(int slate_index, int entry_index, float progress);
 void table_clear();
 void table_flush();
 
