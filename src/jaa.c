@@ -1,43 +1,12 @@
-#include<stdio.h>
-#include<libssh/libssh.h>
-#include<libssh/callbacks.h>
-#include<assert.h>
-#include<errno.h>
-#include<stdarg.h>
-#include<stdbool.h>
-#include<string.h>
-
-#define ANSI_CLEAR_LINE "\033[K"
-#define ANSI_UP         "\033[%dA"
-#define ANSI_DOWN       "\033[%dB"
-#define ANSI_BEGIN      "\r"
-#define ANSI_BLINK_ON   "\033[5m"
-#define ANSI_BLINK_OFF  "\033[0m"
-#define ANSI_RED        "\033[38;5;9m"
-#define ANSI_WHITE      "\033[38;5;15m"
-#define ANSI_BLUE       "\033[38;5;12m"
-
-#define MAX(x,y) ((x)>(y) ? (x) : (y))
-#define HOST_CAPACITY    128
-#define MAX_ADDR_LEN     128
-#define MAX_USERNAME_LEN 128
-#define MAX_PATH_LEN     128
-#define MAX_CMD_LEN      128
-#define MAX_ARG_LEN      128
-#define STDOUT_CAPACITY  1024
-
-//stdout progress parsing constants
-//change these if u want, make sure they are not equal to each other
-#define PROGRESS_START '['
-#define PROGRESS_END   ']'
-#if PROGRESS_START == PROGRESS_END
-    #error PROGRESS_START should != PROGRESS_END but does
-#endif
-
-//progress bar
-#define PBAR_LEN 41
-const char pbar [PBAR_LEN] = "########################################";
-const char empty[PBAR_LEN] = "                                        ";
+#include "jaa.h"
+#include "ui.h"
+#include <dirent.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <libssh/libssh.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <string.h>
 
 //config file parser constants
 #define TOKEN_HOSTS    "[hosts]"
@@ -48,22 +17,16 @@ const char empty[PBAR_LEN] = "                                        ";
 #define TOKEN_COMMENT  "//"
 #define TOKEN_LOGFILE  "[logfile]"
 
+#define FILE_SUFFIX ".jaa"
 
-typedef struct host {
-    ssh_session session;
-    ssh_channel channel;
+//stdout progress parsing constants
+//change these if u want, make sure they are not equal to each other
+#define PROGRESS_START '['
+#define PROGRESS_END   ']'
+#if PROGRESS_START == PROGRESS_END
+    #error PROGRESS_START should != PROGRESS_END but does
+#endif
 
-    char addr       [MAX_ADDR_LEN];
-    char log_file   [MAX_PATH_LEN];
-    int  exit_codes [MAX_ARG_LEN];
-    char stdout_buffer[STDOUT_CAPACITY];
-    char stderr_buffer[STDOUT_CAPACITY];
-
-    int  n_exits;
-    bool is_usable;
-    bool is_busy;
-    int  pos;
-} host;
 
 static struct {
     int  n_args;
@@ -81,6 +44,34 @@ static struct {
     host pool    [HOST_CAPACITY];
 } config;
 
+int find_config_file(char *filename_out, size_t capacity)
+{
+    if(getcwd(filename_out, capacity) == NULL)
+    {
+        perror("error getting current directory");
+        return 0;
+    }
+    DIR *dir;
+    struct dirent *ent;
+    if ((dir = opendir (filename_out)) == NULL) {
+        perror("error reading contents of directory");
+        closedir (dir);    
+        return 0;
+    }
+
+    while ((ent = readdir (dir)) != NULL) {
+        size_t filename_len = strlen(ent->d_name);
+        size_t suffix_len   = strlen(FILE_SUFFIX);
+        if (strcmp(&ent->d_name[filename_len - suffix_len], FILE_SUFFIX) == 0)
+        {
+            strcpy(filename_out, ent->d_name);
+            closedir(dir);
+            return 1;
+        }
+    }
+    closedir (dir);    
+    return 0;
+}
 
 int init_config_from_file(const char *filename)
 {
@@ -311,52 +302,7 @@ int init_config_from_file(const char *filename)
     return SSH_OK;
 }
 
-static void host_printf(host h, const char *fmt, ...)
-{
-
-    const int n = h.pos + 1;
-    const char *address = h.addr;
-
-    va_list args;
-    va_start (args, fmt);
-
-    printf(ANSI_UP, n);
-    printf(ANSI_CLEAR_LINE);
-    printf(ANSI_BEGIN);
-    printf("%-*s ", config.longest_addr, address);
-    vprintf(fmt, args); 
-    printf(ANSI_DOWN, n);
-    printf(ANSI_BEGIN);
-    fflush(stdout);
-
-    va_end(args);
-}
-
-static void host_clearline(host h)
-{
-    const int n = h.pos + 1;
-    printf(ANSI_UP, n);
-    printf(ANSI_CLEAR_LINE);
-    printf(ANSI_BEGIN);
-    printf(ANSI_DOWN, n);
-}
-
-static void host_cumulative_printf(host h, const char *fmt, ...)
-{
-    const int n = h.pos + 1;
-
-    va_list args;
-    va_start (args, fmt);
-
-    printf(ANSI_UP, n);
-    vprintf(fmt, args); 
-    printf(ANSI_DOWN, n);
-    fflush(stdout);
-
-    va_end(args);
-}
-
-int host_authenticate(host h)
+static int host_authenticate(host h)
 {
     int auth_code;
     ssh_session session = h.session;
@@ -427,9 +373,8 @@ int host_authenticate(host h)
 }
 
 
-int host_verify_knownhost(host h)
+static int host_verify_knownhost(host h)
 {
-
     ssh_session session = h.session;
     enum ssh_known_hosts_e state;
     ssh_key srv_pubkey = NULL;
@@ -477,7 +422,7 @@ int host_verify_knownhost(host h)
     return SSH_OK;
 }
 
-void host_new(host *h_ptr)
+static void host_new(host *h_ptr)
 {
     int rc;
     const long timeout = 2;
@@ -534,7 +479,7 @@ void host_new(host *h_ptr)
     return;
 }
 
-void host_free(host h)
+static void host_free(host h)
 {
     ssh_channel_close(h.channel);
     ssh_channel_free(h.channel);
@@ -542,7 +487,7 @@ void host_free(host h)
     ssh_free(h.session);
 }
 
-void host_exec(host *h, const char *args)
+static void host_exec(host *h, const char *args)
 {
     int rc;
     ssh_channel channel = ssh_channel_new(h->session);
@@ -595,79 +540,6 @@ void host_read(host *h)
     return;
 }
 
-void host_cumulative_print_stderr(host h)
-{
-    for (char *ptr = h.stderr_buffer; *ptr != '\0'; ptr++)
-    {
-        if (*ptr == '\n') 
-            *ptr = ' ';
-    }
-    host_cumulative_printf(h, ANSI_RED "%s" ANSI_WHITE, h.stderr_buffer);
-}
-void host_cumulative_print_progress(host h)
-{
-    int   num, denom;
-    char *stdout_buffer = h.stdout_buffer;
-    char *token_end = &stdout_buffer[STDOUT_CAPACITY - 1];
-    char *token_start;
-
-    while (*token_end != PROGRESS_END && token_end > &stdout_buffer[0]) token_end--;
-    if    (token_end == &stdout_buffer[0] && *token_end != PROGRESS_END) 
-    {
-        host_cumulative_print_stderr(h);
-        return;
-    }
-    token_end--;
-    token_start = token_end;
-    while (*token_start != PROGRESS_START && token_start > &stdout_buffer[0]) token_start--;
-    if    (token_start == &stdout_buffer[0] && *token_start != PROGRESS_START) 
-    {
-        host_cumulative_print_stderr(h);
-        return;
-    }
-    token_end ++;
-    *token_end = '\0';
-    token_start++;
-
-    if(sscanf(token_start, "%d/%d", &num, &denom) == 0 || denom == 0)
-    {
-        host_cumulative_print_stderr(h);
-        return;
-    }
-
-    float progress = (float) num / denom;
-    if (progress > 1.00) progress = 1.00;
-    if (progress < 0.00) progress = 0.00;
-    const int fill = (float)progress*PBAR_LEN;
-    const int remaining = PBAR_LEN - fill;
-    host_cumulative_printf(h, "[%.*s%.*s] %d/%d", fill, pbar, remaining, empty, num, denom);
-}
-
-void host_cumulative_print_processes(host h)
-{
-    host_cumulative_printf(h, "[");
-    for (int i = 0; i < h.n_exits; i++)
-    {
-        if (h.exit_codes[i] != 0)
-        {
-            host_cumulative_printf(h, ANSI_RED "*" ANSI_WHITE);
-        }
-        else
-        {
-            host_cumulative_printf(h, ANSI_BLUE "*" ANSI_WHITE);
-        }
-    }
-    if (h.is_busy)
-    {
-        host_cumulative_printf(h, ANSI_BLINK_ON "*" ANSI_BLINK_OFF "] ");
-    }
-    else
-    {
-        host_cumulative_printf(h, "]" );
-    }
-   
-}
-
 void remove_unusable_hosts()
 {
     for (int i = 0; i < config.n_hosts; i++)
@@ -683,22 +555,6 @@ void remove_unusable_hosts()
             }
         }
     }
-}
-
-void clear_screen()
-{
-    for (int i = 0; i < config.n_hosts; i++)
-    {
-        printf(ANSI_UP, 1);
-        printf(ANSI_CLEAR_LINE);
-    }
-    printf(ANSI_DOWN, config.n_hosts);
-}
-
-void pad_screen()
-{
-    for (int i = 0; i < config.n_hosts; i++)
-        printf("\n");
 }
 
 void distribute()
@@ -754,3 +610,43 @@ void distribute()
         host_free(config.pool[i]);
     }
 }
+
+void host_cumulative_print_progress(host h)
+{
+    int   num, denom;
+    char *stdout_buffer = h.stdout_buffer;
+    char *token_end = &stdout_buffer[STDOUT_CAPACITY - 1];
+    char *token_start;
+
+    while (*token_end != PROGRESS_END && token_end > &stdout_buffer[0]) token_end--;
+    if    (token_end == &stdout_buffer[0] && *token_end != PROGRESS_END) 
+    {
+        host_cumulative_print_stderr(h);
+        return;
+    }
+    token_end--;
+    token_start = token_end;
+    while (*token_start != PROGRESS_START && token_start > &stdout_buffer[0]) token_start--;
+    if    (token_start == &stdout_buffer[0] && *token_start != PROGRESS_START) 
+    {
+        host_cumulative_print_stderr(h);
+        return;
+    }
+    token_end ++;
+    *token_end = '\0';
+    token_start++;
+
+    if(sscanf(token_start, "%d/%d", &num, &denom) == 0 || denom == 0)
+    {
+        host_cumulative_print_stderr(h);
+        return;
+    }
+
+    float progress = (float) num / denom;
+    if (progress > 1.00) progress = 1.00;
+    if (progress < 0.00) progress = 0.00;
+    const int fill = (float)progress*PBAR_LEN;
+    const int remaining = PBAR_LEN - fill;
+    host_cumulative_printf(h, "[%.*s%.*s] %d/%d", fill, pbar, remaining, empty, num, denom);
+}
+

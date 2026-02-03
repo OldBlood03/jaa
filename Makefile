@@ -1,7 +1,7 @@
 LIBS   := -lssh
 
 LIBPATHS := dependencies/lib/
-INCPATHS := dependencies/include/
+INCPATHS := dependencies/include/ include/
 
 LFLAGS := -fsanitize=address,undefined $(addprefix -L, $(LIBPATHS)) $(LIBS) 
 CFLAGS := -g -Wextra -Wall -Werror -fsanitize=address,undefined $(addprefix -I, $(INCPATHS)) -fanalyzer 
@@ -9,6 +9,8 @@ CFLAGS := -g -Wextra -Wall -Werror -fsanitize=address,undefined $(addprefix -I, 
 .PHONY: all run debug
 
 all:
+	gcc $(CFLAGS) test.c src/table.c -o app $(LFLAGS)
+none:
 	gcc $(CFLAGS) src/main.c -o app $(LFLAGS)
 run: all
 	LSAN_OPTIONS=suppressions=asan.supp ./app 

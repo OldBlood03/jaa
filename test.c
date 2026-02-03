@@ -1,55 +1,21 @@
-#include<stdarg.h>
-#include<stdbool.h>
-#include<stdio.h>
-#include<unistd.h>
-
-#define CLEAR_LINE "\033[K"
-#define UP "\033[%dA"
-#define DOWN "\033[%dB"
-#define BEGIN "\r"
-
-typedef struct host {
-    const char *addr;
-    int pos;
-} host;
-
-void print_host(host h, const char *fmt, ...)
-{
-
-    const int n = h.pos + 1;
-    const char *address = h.addr;
-
-    va_list args;
-    va_start (args, fmt);
-
-    printf(UP, n);
-    printf(CLEAR_LINE);
-    printf(BEGIN);
-    printf("%s: ", address);
-    vprintf(fmt, args); 
-    fflush(stdout);
-    printf(DOWN, n);
-    printf(BEGIN);
-
-    va_end(args);
-}
-
+#include "table.h"
+#include <stdio.h>
+#define ANSI_CLEAR_LINE "\033[K"
+#define ANSI_UP         "\033[%dA"
+#define ANSI_DOWN       "\033[%dB"
+#define ANSI_BEGIN      "\r"
+#define ANSI_BLINK_ON   "\033[5m"
+#define ANSI_BLINK_OFF  "\033[0m"
+#define ANSI_RED        "\033[38;5;9m"
+#define ANSI_WHITE      "\033[38;5;15m"
+#define ANSI_BLUE       "\033[38;5;12m"
+#define ANSI_RIGHT      "\033[%dC"
 int main(void)
 {
-    host h1 = {
-            .addr = "addr",
-            .pos = 0,
-    };
-    host h2 = {
-            .addr = "addr",
-            .pos = 1,
-    };
-    printf("\n");
-    printf("\n");
-    for (int i = 0;;i++)
-    {
-        print_host(h1, "%d", i);
-        print_host(h2, "%d", i);
-    }
+
+    table_init(style, 5, 3);
+    table_slate_printf(0,0, ANSI_RED ANSI_BLINK_ON "hello worlsdasdasdsadddddddddddddddddddddddddddddddddddfhasoidjojgidfrjgoiejdoiwjdoiawjdoijsguhoidjaijdoiajfifdfiopadkjic" ANSI_BLINK_OFF ANSI_WHITE);
+    table_slate_clear(0,0);
+    table_flush();
     return 0;
 }
