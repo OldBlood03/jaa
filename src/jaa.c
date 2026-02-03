@@ -1,5 +1,5 @@
 #include "jaa.h"
-#include "ui.h"
+#include "table.h"
 #include <dirent.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -19,6 +19,7 @@
 
 #define FILE_SUFFIX ".jaa"
 
+
 //stdout progress parsing constants
 //change these if u want, make sure they are not equal to each other
 #define PROGRESS_START '['
@@ -27,6 +28,16 @@
     #error PROGRESS_START should != PROGRESS_END but does
 #endif
 
+#define PBAR_LEN 40
+static char pbar [PBAR_LEN] = "########################################";
+static char empty[PBAR_LEN] = "                                        ";
+
+#define TABLE_ENTRY_HEADER    0
+#define TABLE_ENTRY_PROGRESS  1 
+#define TABLE_ENTRY_ERROR_MSG 2
+#define TABLE_ENTRY_STDOUT    3
+#define TABLE_ENTRY_STDERR    4
+#define TABLE_ENTRY_N_ENTRIES 5
 
 static struct {
     int  n_args;
@@ -198,7 +209,7 @@ int init_config_from_file(const char *filename)
                 strcpy(h->addr, ptr);
                 memset(h->exit_codes, 0, MAX_ADDR_LEN * sizeof(*h->exit_codes));
                 h->n_exits = 0;
-                h->pos = config.n_hosts;
+                h->id = config.n_hosts;
                 h->is_busy = false;
                 h->is_usable = false;
                 config.n_hosts++;
@@ -300,6 +311,15 @@ int init_config_from_file(const char *filename)
 
     fclose(fp);
     return SSH_OK;
+}
+
+static void host_printf(host h, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    table_slate_clear(h.id, TABLE_ENTRY_ERROR_MSG);
+    table_slate_vprintf(h.id, TABLE_ENTRY_ERROR_MSG, fmt, args);
+    va_end(args);
 }
 
 static int host_authenticate(host h)
@@ -523,10 +543,9 @@ static void host_exec(host *h, const char *args)
     {
         host_printf(*h, "command failed");
     }
-
 }
 
-void host_read(host *h)
+void host_read_io(host *h)
 {
     int rc;
     ssh_channel channel = h->channel;
@@ -540,6 +559,63 @@ void host_read(host *h)
     return;
 }
 
+static void host_print_io(const host *h)
+{
+
+    table_slate_clear(h->id, TABLE_ENTRY_STDOUT);
+    table_slate_printf(h->id, TABLE_ENTRY_STDOUT, h->stdout_buffer);
+
+    table_slate_clear(h->id, TABLE_ENTRY_STDERR);
+    table_slate_printf(h->id, TABLE_ENTRY_STDERR, ANSI_RED);
+    table_slate_printf(h->id, TABLE_ENTRY_STDERR, h->stderr_buffer);
+    table_slate_printf(h->id, TABLE_ENTRY_STDERR, ANSI_WHITE);
+}
+
+static void host_parse_progress_from_io(host *h)
+{
+    int   num,denom;
+    char buffer[STDOUT_CAPACITY] = {0};
+    strcpy(buffer, h->stdout_buffer);
+    char *token_end = &buffer[STDOUT_CAPACITY - 1];
+    char *token_start;
+
+    while (*token_end != PROGRESS_END && token_end > &buffer[0]) token_end--;
+    if    (token_end == &buffer[0] && *token_end != PROGRESS_END) 
+        return;
+
+    token_end--;
+    token_start = token_end;
+    while (*token_start != PROGRESS_START && token_start > &buffer[0]) token_start--;
+    if    (token_start == &buffer[0] && *token_start != PROGRESS_START) 
+        return;
+
+    token_end ++;
+    *token_end = '\0';
+    token_start++;
+
+    if(sscanf(token_start, "%d/%d", &num, &denom) == 0 || denom == 0)
+    {
+        table_slate_clear(h->id, TABLE_ENTRY_ERROR_MSG);
+        table_slate_printf(h->id, TABLE_ENTRY_ERROR_MSG, "no progress detected in stdout");
+        return;
+    }
+
+    h->progress_num = num; h->progress_denom = denom;
+    return;
+}
+
+static void host_print_progress(const host *h)
+{
+    if (h->progress_denom == 0) return;
+    float progress = (float) h->progress_num / h->progress_denom;
+    if (progress > 1.00) progress = 1.00;
+    if (progress < 0.00) progress = 0.00;
+    const int fill = (float)progress*PBAR_LEN;
+    const int remaining = PBAR_LEN - fill;
+    table_slate_clear(h->id, TABLE_ENTRY_PROGRESS);
+    table_slate_printf(h->id, TABLE_ENTRY_PROGRESS, "[%.*s%.*s] %d/%d", fill, pbar, remaining, empty, h->progress_num, h->progress_denom);
+}
+
 void remove_unusable_hosts()
 {
     for (int i = 0; i < config.n_hosts; i++)
@@ -551,28 +627,40 @@ void remove_unusable_hosts()
             for (int j = i; j < config.n_hosts - 1; j++)
             {
                 config.pool[j] = config.pool[j+1];
-                config.pool[j].pos--;
+                config.pool[j].id--;
             }
         }
     }
 }
 
-void distribute()
+void distribute(table_style style)
 {
-    int n_hosts = config.n_hosts;
-    pad_screen();
+    table_init(style, config.n_hosts,TABLE_ENTRY_N_ENTRIES);
+    table_flush();
 
-    for (int i = n_hosts - 1; i >= 0; i--) 
+    for (int i = config.n_hosts - 1; i >= 0; i--) 
+    {
+        table_slate_printf(config.pool[i].id, TABLE_ENTRY_HEADER, config.pool[i].addr);
         host_new(&config.pool[i]);
-
-    clear_screen();
+        table_clear();
+        table_flush();
+    }
+    table_clear();
     remove_unusable_hosts();
+    table_init(style, config.n_hosts,TABLE_ENTRY_N_ENTRIES);
+    table_flush();
+    for (int i = config.n_hosts - 1; i >= 0; i--) 
+    {
+        table_slate_printf(config.pool[i].id, TABLE_ENTRY_HEADER, config.pool[i].addr);
+        table_clear();
+        table_flush();
+    }
 
     bool done = false;
     while (!done)
     {
         done = true;
-        for (int i = n_hosts - 1; i >= 0; i--)
+        for (int i = config.n_hosts - 1; i >= 0; i--)
         {
             host *h = &config.pool[i];
 
@@ -585,9 +673,7 @@ void distribute()
             }
 
             if (h->is_busy) 
-            {
                 done = false;
-            }
 
             if (h->is_busy && !ssh_channel_is_open(h->channel))
             {
@@ -597,56 +683,16 @@ void distribute()
                 h->n_exits ++;
             }
 
-            host_clearline(*h);
-            host_read(h);
-            host_cumulative_print_processes(*h);
-            host_cumulative_printf(*h, "%-*s ",config.longest_addr, h->addr);
-            host_cumulative_print_progress(*h);
-
+            host_read_io(h);
+            host_print_io(h);
+            host_parse_progress_from_io(h);
+            host_print_progress(h);
+            table_clear();
+            table_flush();
         }
     }
-    for (int i = n_hosts; i < n_hosts; i++)
+    for (int i = config.n_hosts; i < config.n_hosts; i++)
     {
         host_free(config.pool[i]);
     }
 }
-
-void host_cumulative_print_progress(host h)
-{
-    int   num, denom;
-    char *stdout_buffer = h.stdout_buffer;
-    char *token_end = &stdout_buffer[STDOUT_CAPACITY - 1];
-    char *token_start;
-
-    while (*token_end != PROGRESS_END && token_end > &stdout_buffer[0]) token_end--;
-    if    (token_end == &stdout_buffer[0] && *token_end != PROGRESS_END) 
-    {
-        host_cumulative_print_stderr(h);
-        return;
-    }
-    token_end--;
-    token_start = token_end;
-    while (*token_start != PROGRESS_START && token_start > &stdout_buffer[0]) token_start--;
-    if    (token_start == &stdout_buffer[0] && *token_start != PROGRESS_START) 
-    {
-        host_cumulative_print_stderr(h);
-        return;
-    }
-    token_end ++;
-    *token_end = '\0';
-    token_start++;
-
-    if(sscanf(token_start, "%d/%d", &num, &denom) == 0 || denom == 0)
-    {
-        host_cumulative_print_stderr(h);
-        return;
-    }
-
-    float progress = (float) num / denom;
-    if (progress > 1.00) progress = 1.00;
-    if (progress < 0.00) progress = 0.00;
-    const int fill = (float)progress*PBAR_LEN;
-    const int remaining = PBAR_LEN - fill;
-    host_cumulative_printf(h, "[%.*s%.*s] %d/%d", fill, pbar, remaining, empty, num, denom);
-}
-

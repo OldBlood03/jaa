@@ -13,33 +13,6 @@
 #define MAX_TABLE_ROWS 512
 #define MAX_ROW_LEN 1024
 
-#ifdef  NO_ANSI
-
-#define ANSI_CLEAR_LINE ""
-#define ANSI_UP         ""
-#define ANSI_DOWN       ""
-#define ANSI_BEGIN      ""
-#define ANSI_BLINK_ON   ""
-#define ANSI_BLINK_OFF  ""
-#define ANSI_RED        ""
-#define ANSI_WHITE      ""
-#define ANSI_BLUE       ""
-
-#else
-
-#define ANSI_CLEAR_LINE "\033[K"
-#define ANSI_UP         "\033[%dA"
-#define ANSI_DOWN       "\033[%dB"
-#define ANSI_BEGIN      "\r"
-#define ANSI_BLINK_ON   "\033[5m"
-#define ANSI_BLINK_OFF  "\033[0m"
-#define ANSI_RED        "\033[38;5;9m"
-#define ANSI_WHITE      "\033[38;5;15m"
-#define ANSI_BLUE       "\033[38;5;12m"
-#define ANSI_RIGHT      "\033[%dC"
-
-#endif
-
 typedef struct {
     int cursor_save_point[MAX_ENTRIES];
     int visible_capacity[MAX_ENTRIES];
@@ -109,7 +82,7 @@ void table_init(table_style style, int n_slates, int n_entries)
     {
         for (int j = 0; j < n_entries; j++)
         {
-            table.slates[i].visible_capacity[j]   = style.width - style.h_padding*2 - 2;
+            table.slates[i].visible_capacity[j]   = table.style.width - table.style.h_padding*2 - 2;
             table.slates[i].invisible_capacity[j] = MAX_TABLE_ROWS - table.slates[i].visible_capacity[j];
         }
     }
@@ -118,7 +91,7 @@ void table_init(table_style style, int n_slates, int n_entries)
     {
         for (int j = 0; j < n_entries; j++)
         {
-            table.slates[i].cursor_save_point[j] = style.h_padding + 1;
+            table.slates[i].cursor_save_point[j] = table.style.h_padding + 1;
         }
     }
 
@@ -211,6 +184,64 @@ void table_slate_printf(int slate_index, int entry_index, const char *fmt, ...)
     vsnprintf(buffer, sizeof(buffer), fmt, args); 
     va_end(args);
 
+    for (char *ptr = buffer; *ptr != '\0'; ptr++)
+        if (*ptr == '\n') *ptr = ' ';
+
+    int *visible_capacity   = &table.slates[slate_index].visible_capacity[entry_index];
+    int *invisible_capacity = &table.slates[slate_index].invisible_capacity[entry_index];
+    const int row = 1 + table.style.v_padding + slate_index * (table.slate_rows + 1) + (entry_index > 0 ? 1 : 0) + entry_index * table.entry_rows;
+
+    int str_pos       = 0;
+    int cursor        = table.slates[slate_index].cursor_save_point[entry_index];
+    int visible_len   = 0;
+    int invisible_len = 0;
+    int invisible_prints = 0;
+
+    do {
+        len_pair offsets = ansi_skip(&buffer[str_pos]);
+        visible_len = offsets.visible_len;
+        invisible_len = offsets.invisible_len;
+        invisible_prints += invisible_len;
+        int processed_len = 0;
+
+        for (int i = 0; i < visible_len && *visible_capacity > 0; i++, (*visible_capacity)--, cursor++, str_pos++, processed_len++)
+        {
+            table.rows[row][cursor] = buffer[str_pos];
+            if (*visible_capacity <= 3)
+                table.rows[row][cursor] = '.';
+        }
+
+        if (invisible_len == 0) continue;
+
+        if (invisible_len + 1 > (*invisible_capacity)) 
+            fprintf(stderr, "ansi character capacity not enough to print ansi characters, skipping");
+
+        for (int i = 0; i < invisible_len; i++, (*invisible_capacity)--, cursor++, str_pos++) 
+        {
+            table.rows[row][cursor] = buffer[str_pos + visible_len - processed_len];
+        }
+    }
+    while ((visible_len > 0 && *visible_capacity > 0) || (invisible_len > 0 && (*invisible_capacity) > 0));
+    table.slates[slate_index].cursor_save_point[entry_index] = cursor;
+
+    for (int i = 0; i < *visible_capacity + table.style.h_padding; i++, cursor++)
+    {
+        table.rows[row][cursor] = ' ';
+    }
+    table.rows[row][cursor] = '|';
+}
+
+void table_slate_vprintf(int slate_index, int entry_index, const char *fmt, va_list args)
+{
+    assert (entry_index < table.n_entries && "tried to access out of bounds entry");
+    assert (slate_index < table.n_slates && "tried to access out of bounds slate");
+
+    char buffer[MAX_ROW_LEN];
+    vsnprintf(buffer, sizeof(buffer), fmt, args); 
+
+    for (char *ptr = buffer; *ptr != '\0'; ptr++)
+        if (*ptr == '\n') *ptr = ' ';
+
     int *visible_capacity   = &table.slates[slate_index].visible_capacity[entry_index];
     int *invisible_capacity = &table.slates[slate_index].invisible_capacity[entry_index];
     const int row = 1 + table.style.v_padding + slate_index * (table.slate_rows + 1) + (entry_index > 0 ? 1 : 0) + entry_index * table.entry_rows;
@@ -261,4 +292,14 @@ void table_flush()
     {
         printf("%s\n", table.rows[i]);
     }
+}
+
+void table_clear()
+{
+    for (int i = 0; i < table.n_rows; i++)
+    {
+        printf(ANSI_UP, 1);
+        printf(ANSI_CLEAR_LINE);
+    }
+    fflush(stdout);
 }

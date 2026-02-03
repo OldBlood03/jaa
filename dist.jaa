@@ -1,9 +1,9 @@
 [hosts]
 befunge.org.aalto.fi
-//bit.org.aalto.fi
-//bogo.org.aalto.fi
-//brainfuck.org.aalto.fi
-//deadfish.org.aalto.fi
+bit.org.aalto.fi
+bogo.org.aalto.fi
+brainfuck.org.aalto.fi
+deadfish.org.aalto.fi
 //emo.org.aalto.fi
 //entropy.org.aalto.fi
 //false.org.aalto.fi
@@ -32,23 +32,13 @@ befunge.org.aalto.fi
 //zombie.org.aalto.fi
 
 [username]
-    //ok
-//ok
 longhuo1
-//hello
-        //hello
 
 [cmd]
-python3 test.py
-        //hello
+cd ..
 
 [path]
 /m/home/home6/69/longhuo1/unix/projects/ssh-distribute
+
 [args]
-arg
-arg
-arg
-    //comments
-//comment
-    //comment
 //[logfile]

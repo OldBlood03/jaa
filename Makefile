@@ -9,9 +9,7 @@ CFLAGS := -g -Wextra -Wall -Werror -fsanitize=address,undefined $(addprefix -I, 
 .PHONY: all run debug
 
 all:
-	gcc $(CFLAGS) test.c src/table.c -o app $(LFLAGS)
-none:
-	gcc $(CFLAGS) src/main.c -o app $(LFLAGS)
+	gcc $(CFLAGS) src/main.c src/table.c src/jaa.c -o app $(LFLAGS)
 run: all
 	LSAN_OPTIONS=suppressions=asan.supp ./app 
 debug: all
