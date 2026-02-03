@@ -6,10 +6,9 @@
 static char help[] =
     "--file or -f <arg>"
     "\n"
-    "\tassigns file <arg> as the config file containing the information on how the cmd"
-    "is to be distributed"
+    "\tassigns file <arg> as the config file containing the information on how the cmd is to be distributed"
     "\n"
-    "-h"
+    "--help or -h"
     "\n"
     "\tprint help information"
     "\n";
@@ -26,12 +25,13 @@ int main(int argc, char *argv[])
     };
 
     int  rc;
+    int  oc;
     bool got_option = false;
     while(1)
     {
-        rc = getopt_long(argc, argv, "hf:", options, NULL);
-        if (rc == -1) break;
-        switch(rc)
+        oc = getopt_long(argc, argv, "hf:", options, NULL);
+        if (oc == -1) break;
+        switch(oc)
         {
             case 'f':
                 rc = init_config_from_file(optarg);
@@ -54,8 +54,9 @@ int main(int argc, char *argv[])
         }
         rc = init_config_from_file(filename);
     }
-    if (rc != SSH_OK) return -1;
 
+    printf("status: %s\n", rc == SSH_OK ? "ok" : "not ok");
+    if (rc != SSH_OK) return -1;
     table_style style = {
     .width = 300,
     .v_padding = 0,

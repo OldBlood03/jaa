@@ -1,9 +1,9 @@
 # DESCRIPTION
-Jaa is a tool to distribute programs through SSH. If a program takes too long to run on a single machine, you can split it up and distribute it to many. The only 
+Jaa is a tool to distribute programs through SSH. If a program takes too long to run on a single machine, you can split it up and distribute it to many.
 
 # GENERAL USE
 ```{bash}
->jaa
+jaa
 ```
 Without arguments, jaa searches the current directory for a `*.jaa` file that specifies how your program should be distributed i.e. to what host machines / ssh addresses, what cmd to run, where to run it, and with what arguments. You can optionally specify a filepath with the `-f` flag.
 # DEPENDENCIES
