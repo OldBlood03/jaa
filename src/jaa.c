@@ -63,7 +63,6 @@ int find_config_file(char *filename_out, size_t capacity)
     struct dirent *ent;
     if ((dir = opendir (filename_out)) == NULL) {
         perror("error reading contents of directory");
-        closedir (dir);    
         return 0;
     }
 

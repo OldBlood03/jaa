@@ -15,7 +15,7 @@ all:
 	gcc $(CFLAGS) src/main.c src/table.c src/jaa.c -o jaa $(LFLAGS)
 
 release:
-	gcc $(CFLAGS) src/main.c src/table.c src/jaa.c -o jaa $(LFLAGS)
+	gcc $(RELEASE_CFLAGS) src/main.c src/table.c src/jaa.c -o jaa $(RELEASE_LFLAGS)
 
 run:
 	LSAN_OPTIONS=suppressions=asan.supp ./jaa 
