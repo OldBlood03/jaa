@@ -39,13 +39,19 @@ entropy.org.aalto.fi
 [username]
 longhuo1
 
+[path]
+/u/69/longhuo1/unix/projects/ssh-distribute
+
 [cmd]
 python3 test.py
 
-[path] //this is the **absolute** path from which everything is excecuted
-/m/home/home6/69/longhuo1/unix/projects/ssh-distribute
+//[args]
+////arg1
+//2
+//23
+//5
+//6
+//7
 
-[args]
-arg 1
 [logfile]
 //log files go here, one line, one log file

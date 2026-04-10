@@ -1,3 +1,4 @@
+CC := gcc
 LIBS   := -lssh
 
 LIBPATHS := dependencies/lib/
@@ -9,13 +10,13 @@ CFLAGS := -g -Wextra -Wall -Werror -fsanitize=address,undefined $(addprefix -I, 
 RELEASE_LFLAGS := $(addprefix -L, $(LIBPATHS)) $(LIBS) 
 RELEASE_CFLAGS := $(addprefix -I, $(INCPATHS)) -O3
 
-.PHONY: all run debug
+.PHONY: all run debug test
 
 all:
-	gcc $(CFLAGS) src/main.c src/table.c src/jaa.c -o jaa $(LFLAGS)
+	$(CC) $(CFLAGS) src/main.c src/table.c src/jaa.c -o jaa $(LFLAGS)
 
 release:
-	gcc $(RELEASE_CFLAGS) src/main.c src/table.c src/jaa.c -o jaa $(RELEASE_LFLAGS)
+	$(CC) $(RELEASE_CFLAGS) src/main.c src/table.c src/jaa.c -o jaa $(RELEASE_LFLAGS)
 
 run:
 	LSAN_OPTIONS=suppressions=asan.supp ./jaa 

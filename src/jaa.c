@@ -13,331 +13,15 @@
 #define TOKEN_USERNAME "[username]"
 #define TOKEN_CMD      "[cmd]"
 #define TOKEN_RELPATH  "[path]"
-#define TOKEN_ARGS     "[args]"
 #define TOKEN_COMMENT  "//"
-#define TOKEN_LOGFILE  "[logfile]"
 
-#define FILE_SUFFIX ".jaa"
-
-
-//stdout progress parsing constants
-//change these if u want, make sure they are not equal to each other
-#define PROGRESS_START '['
-#define PROGRESS_END   ']'
-#if PROGRESS_START == PROGRESS_END
-    #error PROGRESS_START should != PROGRESS_END but does
-#endif
-
-#define TABLE_ENTRY_HEADER    0
-#define TABLE_ENTRY_PROGRESS  1 
-#define TABLE_ENTRY_ERROR_MSG 2
-#define TABLE_ENTRY_STDOUT    3
-#define TABLE_ENTRY_STDERR    4
-#define TABLE_ENTRY_PROCESS   5 
-#define TABLE_ENTRY_N_ENTRIES 6
-
-static struct {
-    int  n_args;
-    int  n_processed;
-    char args[HOST_CAPACITY][MAX_ARG_LEN];
-} process_queue;
-
-static struct {
-    int  longest_addr;
-    int  n_hosts;
-
-    char username[MAX_USERNAME_LEN];
-    char relpath [MAX_PATH_LEN];
-    char cmd     [MAX_CMD_LEN];
-    host pool    [HOST_CAPACITY];
-} config;
-
-int find_config_file(char *filename_out, size_t capacity)
-{
-    if(getcwd(filename_out, capacity) == NULL)
-    {
-        perror("error getting current directory");
-        return 0;
-    }
-    DIR *dir;
-    struct dirent *ent;
-    if ((dir = opendir (filename_out)) == NULL) {
-        perror("error reading contents of directory");
-        return 0;
-    }
-
-    while ((ent = readdir (dir)) != NULL) {
-        size_t filename_len = strlen(ent->d_name);
-        size_t suffix_len   = strlen(FILE_SUFFIX);
-        if (strcmp(&ent->d_name[filename_len - suffix_len], FILE_SUFFIX) == 0)
-        {
-            strcpy(filename_out, ent->d_name);
-            closedir(dir);
-            return 1;
-        }
-    }
-    closedir (dir);    
-    return 0;
-}
-
-int init_config_from_file(const char *filename)
-{
-
-    FILE *fp;
-    fp = fopen(filename, "r");
-
-    if (!fp)
-    {
-        perror("error opening file");
-        return SSH_ERROR;
-    }
-
-    int line_count = 0;
-    size_t line_len = 0;
-    char *line_ptr = NULL;
-
-    process_queue.n_args = 0;
-    process_queue.n_processed = 0;
-    for (int i = 0; i < HOST_CAPACITY; i++)
-    {
-        memset(process_queue.args[i], 0, sizeof(process_queue.args[i]));
-    }
-
-    config.longest_addr = 0;
-    config.n_hosts  = 0;
-    memset(config.username, 0, MAX_USERNAME_LEN * sizeof(*config.username));
-    memset(config.relpath,  0, MAX_PATH_LEN     * sizeof(*config.relpath));
-    memset(config.pool,     0, HOST_CAPACITY    * sizeof(*config.pool));
-
-    enum {
-        NONE,
-        HOSTS,
-        USERNAME,
-        RELPATH,
-        CMD,
-        ARGS,
-        LOGFILE
-    } parser_state;
-
-    parser_state = NONE;
-    while(getline(&line_ptr, &line_len, fp) != EOF)
-    {
-        char *comment_start = strstr(line_ptr, TOKEN_COMMENT);
-        char *token;
-        bool commented;
-
-        line_count ++;
-
-        token = strstr(line_ptr, TOKEN_HOSTS);
-        commented = (comment_start != NULL) && (token > comment_start);
-        if(token != NULL && !commented) { parser_state = HOSTS; continue; }
-
-        token = strstr(line_ptr, TOKEN_USERNAME);
-        commented = (comment_start != NULL) && (token > comment_start);
-        if(token != NULL && !commented) 
-        {
-            parser_state = USERNAME;
-            continue; 
-        }
-
-        token = strstr(line_ptr, TOKEN_CMD);
-        commented = (comment_start != NULL) && (token > comment_start);
-        if(token != NULL && !commented) 
-        {
-            parser_state = CMD;
-            continue;
-        }
-
-        token = strstr(line_ptr, TOKEN_ARGS);
-        commented = (comment_start != NULL) && (token > comment_start);
-        if(token != NULL && !commented) 
-        {
-            parser_state = ARGS;
-            continue; 
-        }
-
-        token = strstr(line_ptr, TOKEN_RELPATH);
-        commented = (comment_start != NULL) && (token > comment_start);
-        if(token != NULL && !commented) 
-        { 
-            parser_state = RELPATH;
-            continue; 
-        }
-
-        token = strstr(line_ptr, TOKEN_LOGFILE);
-        commented = (comment_start != NULL) && (token > comment_start);
-        if(token != NULL && !commented) 
-        { 
-            parser_state = LOGFILE;
-            continue; 
-        }
-
-        char *ptr;
-        size_t trimmed_len;
-
-        ptr = line_ptr;
-        while (*ptr == ' ' || *ptr == '\t') ptr++;
-        ptr = strtok(ptr, "\n");
-
-        if (ptr == NULL) continue;
-        if (comment_start != NULL) *comment_start = '\0';
-        if (comment_start != NULL && ptr >= comment_start) continue;
-        trimmed_len = strlen(ptr) + 1;
-
-        switch(parser_state)
-        {
-            case NONE:
-                break;
-            case HOSTS:
-                if (trimmed_len > MAX_ADDR_LEN) 
-                {
-                    fprintf(stderr, "parse error on line %d: encountered address that exceeds maximum "
-                    "length:\naddress:%s\nmaxlen:%d\n",
-                            line_count,
-                            ptr, 
-                            MAX_ADDR_LEN);
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                if ((int)trimmed_len > config.longest_addr) config.longest_addr = (int) trimmed_len;
-
-                host *h = &config.pool[config.n_hosts];
-                strcpy(h->addr, ptr);
-                h->log_fp = NULL;
-                memset(h->exit_codes, 0, MAX_ADDR_LEN * sizeof(*h->exit_codes));
-                h->n_exits = 0;
-                h->progress_num = 0;
-                h->progress_denom = 0;
-                h->id = config.n_hosts;
-                h->is_busy = false;
-                h->is_usable = false;
-                config.n_hosts++;
-                break;
-            case USERNAME:
-                if (trimmed_len > MAX_USERNAME_LEN) 
-                {
-                    fprintf(stderr,
-                            "parse error on line %d: encountered username that exceeds maximum length:\nusername:%s\nmaxlen:%d\n",
-                            line_count,
-                            ptr, 
-                            MAX_USERNAME_LEN);
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                if (*config.username)
-                {
-                    fprintf(stderr, "parse error on line %d: multiple usernames given\n", line_count);
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                strcpy(config.username, ptr);
-                break;
-            case CMD:
-                trimmed_len = strlen(ptr) + 1;
-                if (trimmed_len > MAX_CMD_LEN) 
-                {
-                    fprintf(stderr, "parse error on line %d: encountered command that exceeds maximum length:\ncommand:%s\nmaxlen:%d\n",
-                            line_count,
-                            ptr, 
-                            MAX_CMD_LEN);
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                if (*config.cmd)
-                {
-                    fprintf(stderr, "parse error on line %d: multiple commands given\n", line_count);
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                strcpy(config.cmd, ptr);
-                break;
-            case ARGS:
-                trimmed_len = strlen(ptr) + 1;
-                if (trimmed_len > MAX_ARG_LEN) 
-                {
-                    fprintf(stderr,
-                            "parse error on line %d: encountered arg that exceeds maximum length:\narg:%s\nmaxlen:%d\n",
-                            line_count,
-                            ptr, 
-                            MAX_ARG_LEN);
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                strcpy(process_queue.args[process_queue.n_args], ptr);
-                process_queue.n_args++;
-                break;
-            case RELPATH:
-                if (trimmed_len > MAX_PATH_LEN) 
-                {
-                    fprintf(stderr,
-                            "parse error on line %d: encountered a path that exceeds maximum length:\narg:%s\nmaxlen:%d\n",
-                            line_count,
-                            ptr, 
-                            MAX_PATH_LEN);
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                strcpy(config.relpath, ptr);
-                break;
-            case LOGFILE:
-                if (trimmed_len > MAX_PATH_LEN) 
-                {
-                    fprintf(stderr,
-                            "parse error: encountered a path that exceeds maximum length:\narg:%s\nmaxlen:%d\n",
-                            ptr, 
-                            MAX_PATH_LEN);
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                h->log_fp = fopen(ptr, "wx");
-                if (h->log_fp == NULL)
-                {
-                    perror("failed to create log file. aborting.\nreason");
-                    fclose(fp);
-                    return SSH_ERROR;
-                }
-                break;
-        }
-    }
-
-    if (!*config.username)
-    {
-        fprintf(stderr, "no username supplied in config file\n");
-        fclose(fp);
-        return SSH_ERROR;
-    }
-    if (!*config.cmd) 
-    {
-        fprintf(stderr, "no command supplied in config file\n");
-        fclose(fp);
-        return SSH_ERROR;
-    }
-    if (process_queue.n_args == 0)  process_queue.n_args = config.n_hosts;
-
-    int non_null_lfps = 0;
-    for (int i = 0; i < config.n_hosts; i++)
-        non_null_lfps += config.pool[i].log_fp == NULL ? 0 : 1;
-
-    if (non_null_lfps > 0 && non_null_lfps != config.n_hosts)
-    {
-        fprintf(stderr,
-                "the number of log files supplied: %d does not match the number of hosts: %d\n",
-                non_null_lfps, config.n_hosts);
-
-        fclose(fp);
-        return SSH_ERROR;
-    }
-
-    fclose(fp);
-    return SSH_OK;
-}
+#define FILENAME "dist.jaa"
 
 static void host_printf(host h, const char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    table_slate_clear(h.id, TABLE_ENTRY_ERROR_MSG);
-    table_slate_vprintf(h.id, TABLE_ENTRY_ERROR_MSG, fmt, args);
+    vsnprintf(h.status_buffer, sizeof(h.status_buffer), fmt, args);
     va_end(args);
 }
 
@@ -353,7 +37,6 @@ static int host_authenticate(host h)
         case SSH_AUTH_SUCCESS:
             host_printf(h, "authentication succeeded");
             return SSH_OK;
-        case SSH_AUTH_DENIED: //fallthrough
         default:
             host_printf(h, "authentication failed");
     }
@@ -372,7 +55,6 @@ static int host_authenticate(host h)
             case SSH_AUTH_SUCCESS:
                 host_printf(h, "authentication succeeded");
                 return SSH_OK;
-            case SSH_AUTH_DENIED: //fallthrough
             default:
                 host_printf(h, "authentication failed");
         }
@@ -386,7 +68,6 @@ static int host_authenticate(host h)
             case SSH_AUTH_SUCCESS:
                 host_printf(h, "authentication succeeded");
                 return SSH_OK;
-            case SSH_AUTH_DENIED: //fallthrough
             default:
                 host_printf(h, "authentication failed");
         }
@@ -401,7 +82,6 @@ static int host_authenticate(host h)
             case SSH_AUTH_SUCCESS:
                 host_printf(h, "authentication succeeded");
                 return SSH_OK;
-            case SSH_AUTH_DENIED: //fallthrough
             default:
                 host_printf(h, "authentication failed");
         }
@@ -444,9 +124,7 @@ static int host_verify_knownhost(host h)
             host_printf(h, "Could not find known host file.");
             host_printf(h, "If you accept the host key here, the file will be"
                     "automatically created.");
- 
             [[fallthrough]];
- 
         case SSH_KNOWN_HOSTS_UNKNOWN:
             host_printf(h, "The server is unknown. Trusting without asking.");
             rc = ssh_session_update_known_hosts(session);
@@ -461,7 +139,7 @@ static int host_verify_knownhost(host h)
     return SSH_OK;
 }
 
-static void host_new(host *h_ptr)
+static void init_host(host *h_ptr)
 {
     int rc;
     const long timeout = 2;
@@ -482,7 +160,7 @@ static void host_new(host *h_ptr)
         return;
     }
 
-    rc = ssh_options_set(session, SSH_OPTIONS_USER, (void *)config.username);
+    rc = ssh_options_set(session, SSH_OPTIONS_USER, (void *)username);
     if (rc < 0)
     {
         host_printf(*h_ptr, "error: %s", ssh_get_error(session));
@@ -570,7 +248,6 @@ void host_read_io(host *h)
     ssh_channel channel = h->channel;
     if (!ssh_channel_is_open(channel)) return;
 
-
     n_bytes = ssh_channel_read(channel, h->stdout_buffer, sizeof(h->stdout_buffer) - 1, 0);
     if (n_bytes == SSH_ERROR) return;
     h->stdout_buffer[n_bytes] = '\0';
@@ -581,159 +258,189 @@ void host_read_io(host *h)
     return;
 }
 
-void host_save_io(const host *h)
+static void remove_unusable_hosts(darray(host) pool)
 {
-    if (h->log_fp == NULL) return;
-    fprintf(h->log_fp, "stdout: %s", h->stdout_buffer);
-    fprintf(h->log_fp, "stderr: %s", h->stderr_buffer);
-    if (ferror(h->log_fp))
+    int n_hosts = darray_size(pool);
+    for (int i = 0; i < n_hosts; i++)
     {
-        host_printf(*h, "failed to write to log file");
-        return;
-    }
-    fflush(h->log_fp);
-}
-
-static void host_print_io(const host *h)
-{
-
-    table_slate_clear(h->id, TABLE_ENTRY_STDOUT);
-    table_slate_printf(h->id, TABLE_ENTRY_STDOUT, "stdout: %s", h->stdout_buffer);
-
-    table_slate_clear(h->id, TABLE_ENTRY_STDERR);
-    table_slate_printf(h->id, TABLE_ENTRY_STDERR, ANSI_RED);
-    table_slate_printf(h->id, TABLE_ENTRY_STDERR, "stderr: %s", h->stderr_buffer);
-    table_slate_printf(h->id, TABLE_ENTRY_STDERR, ANSI_WHITE);
-}
-
-static void host_parse_progress_from_io(host *h)
-{
-    int   num,denom;
-    char buffer[STDOUT_CAPACITY] = {0};
-    strcpy(buffer, h->stdout_buffer);
-    char *token_end = &buffer[STDOUT_CAPACITY - 1];
-    char *token_start;
-
-    while (*token_end != PROGRESS_END && token_end > &buffer[0]) token_end--;
-    if    (token_end == &buffer[0] && *token_end != PROGRESS_END) 
-        return;
-
-    token_end--;
-    token_start = token_end;
-    while (*token_start != PROGRESS_START && token_start > &buffer[0]) token_start--;
-    if    (token_start == &buffer[0] && *token_start != PROGRESS_START) 
-        return;
-
-    token_end ++;
-    *token_end = '\0';
-    token_start++;
-
-    if(sscanf(token_start, "%d/%d", &num, &denom) == 0 || denom == 0)
-    {
-        table_slate_clear(h->id, TABLE_ENTRY_ERROR_MSG);
-        table_slate_printf(h->id, TABLE_ENTRY_ERROR_MSG, "no progress detected in stdout");
-        return;
-    }
-
-    h->progress_num = num; h->progress_denom = denom;
-    return;
-}
-
-static void host_print_progress(const host *h)
-{
-    table_slate_clear(h->id, TABLE_ENTRY_PROGRESS);
-    if (h->progress_denom > 0)
-    {
-        float progress = (float) h->progress_num / h->progress_denom;
-        table_slate_print_progress(h->id, TABLE_ENTRY_PROGRESS, progress);
-    }
-    else 
-        table_slate_print_progress(h->id, TABLE_ENTRY_PROGRESS, 0);
-}
-
-void remove_unusable_hosts()
-{
-    for (int i = 0; i < config.n_hosts; i++)
-    {
-        if (!config.pool[i].is_usable)
+        if (pool[i].is_usable)
         {
-            host_free(config.pool[i]);
-            config.n_hosts--;
-            for (int j = i; j < config.n_hosts; j++)
-            {
-                config.pool[j] = config.pool[j+1];
-                config.pool[j].id--;
-            }
-            i--;
+            host_free(pool[i]);
+            darray_remove(pool, i);
         }
     }
 }
 
-void distribute(table_style style)
+void jaa_update(job j)
 {
-    table_init(style, config.n_hosts, TABLE_ENTRY_N_ENTRIES);
-    table_flush();
-
-    for (int i = 0; i < config.n_hosts; i++) 
+    remove_unusable_hosts(j.pool);
+    int n_hosts = darray_size(j.pool);
+    for (int i = 0; i < n_hosts; i++)
     {
-        table_slate_printf(config.pool[i].id, TABLE_ENTRY_HEADER, config.pool[i].addr);
-        host_new(&config.pool[i]);
-        table_clear();
-        table_flush();
-    }
-
-    remove_unusable_hosts();
-
-    table_clear();
-    table_init(style, config.n_hosts,TABLE_ENTRY_N_ENTRIES);
-    table_flush();
-    for (int i = 0; i < config.n_hosts; i++) 
-    {
-        table_slate_printf(config.pool[i].id, TABLE_ENTRY_HEADER, config.pool[i].addr);
-        table_clear();
-        table_flush();
-    }
-
-    bool done = false;
-    while (!done)
-    {
-        done = true;
-        for (int i = 0; i < config.n_hosts; i++)
+        if (!j.pool[i].is_usable) continue;
+        if (!j.pool[i].is_busy && (darray_size(cmds) > 0))
         {
-            host *h = &config.pool[i];
+            char *cmd = darray_pop(cmds);
+            host_exec(h, cmd);
+            h->is_busy = true;
+        }
 
-            if (!h->is_usable) continue;
-            if (!h->is_busy && (process_queue.n_processed < process_queue.n_args))
-            {
-                host_exec(h, process_queue.args[process_queue.n_processed]);
-                h->is_busy = true;
-                process_queue.n_processed++;
-            }
+        if (h->is_busy && !ssh_channel_is_open(h->channel))
+        {
+            int exit_code = ssh_channel_get_exit_status(h->channel);
+            h->is_busy = false;
+        }
 
-            if (h->is_busy) 
-                done = false;
+        host_read_io(h);
+    }
+}
 
-            if (h->is_busy && !ssh_channel_is_open(h->channel))
-            {
-                int exit_code = ssh_channel_get_exit_status(h->channel);
-                h->is_busy = false;
-                h->exit_codes[h->n_exits] = exit_code;
-                h->n_exits ++;
-            }
+int jaa_job_init(job *out)
+{
+    out = {0};
 
-            host_read_io(h);
-            host_save_io(h);
-            host_print_io(h);
-            host_parse_progress_from_io(h);
-            host_print_progress(h);
-            table_clear();
-            sleep(0.2);
-            table_flush();
+    FILE *fp;
+    fp = fopen(FILENAME, "r");
+
+    if (!fp)
+    {
+        perror("error opening file");
+        return JAA_ERROR;
+    }
+
+    enum {
+        NONE,
+        HOSTS,
+        USERNAME,
+        RELPATH,
+        CMD,
+    } parser_state;
+    parser_state = NONE;
+
+    int    line_count = 0;
+    size_t line_len = 0;
+    char  *line_ptr = NULL;
+
+    while(getline(&line_ptr, &line_len, fp) != EOF)
+    {
+        line_count ++;
+        char *comment_start = strstr(line_ptr, TOKEN_COMMENT);
+        bool commented;
+        char *token;
+
+        token = strstr(line_ptr, TOKEN_HOSTS);
+        commented = (comment_start) && (token > comment_start);
+        if(token && !commented) 
+        { 
+            parser_state = HOSTS;
+            continue; 
+        }
+
+        token = strstr(line_ptr, TOKEN_USERNAME);
+        commented = (comment_start) && (token > comment_start);
+        if(token && !commented) 
+        {
+            parser_state = USERNAME;
+            continue; 
+        }
+
+        token = strstr(line_ptr, TOKEN_CMD);
+        commented = (comment_start) && (token > comment_start);
+        if(token && !commented) 
+        {
+            parser_state = CMD;
+            continue;
+        }
+
+        token = strstr(line_ptr, TOKEN_RELPATH);
+        commented = (comment_start) && (token > comment_start);
+        if(token && !commented) 
+        { 
+            parser_state = RELPATH;
+            continue; 
+        }
+
+        char *ptr;
+        size_t trimmed_len;
+
+        ptr = line_ptr;
+        while (*ptr == ' ' || *ptr == '\t') ptr++;
+        ptr = strtok(ptr, "\n");
+
+        if (ptr == NULL) continue;
+        if (comment_start != NULL) *comment_start = '\0';
+        if (comment_start != NULL && ptr >= comment_start) continue;
+        trimmed_len = strlen(ptr) + 1;
+
+        switch(parser_state)
+        {
+            case NONE:
+                break;
+            case HOSTS:
+                if (trimmed_len > MAX_ADDR_LEN) 
+                {
+                    fprintf(stderr, "parse error on line %d: encountered address that exceeds maximum "
+                    "length:\naddress:%s\nmaxlen:%d\n",
+                            line_count,
+                            ptr, 
+                            MAX_ADDR_LEN);
+                    fclose(fp);
+                    return JAA_ERROR;
+                }
+                if ((int)trimmed_len > config.longest_addr) config.longest_addr = (int) trimmed_len;
+
+                host h = {0};
+                strcpy(h.addr, ptr);
+                darray_push_back(out.pool, h);
+                break;
+            case USERNAME:
+                if (trimmed_len > MAX_USERNAME_LEN) 
+                {
+                    fprintf(stderr,
+                            "parse error on line %d: encountered username that exceeds maximum length:\nusername:%s\nmaxlen:%d\n",
+                            line_count,
+                            ptr, 
+                            MAX_USERNAME_LEN);
+                    fclose(fp);
+                    return JAA_ERROR;
+                }
+                if (out.username)
+                {
+                    fprintf(stderr, "parse error on line %d: multiple usernames given\n", line_count);
+                    fclose(fp);
+                    return JAA_ERROR;
+                }
+                strcpy(out.username, ptr);
+                break;
+            case CMD:
+                const char *cmd = strdup(ptr);
+                darray_push_back(out.cmds, cmd);
+                break;
+            case RELPATH:
+                if (trimmed_len > MAX_PATH_LEN) 
+                {
+                    fprintf(stderr,
+                            "parse error on line %d: encountered a path that exceeds maximum length:\narg:%s\nmaxlen:%d\n",
+                            line_count,
+                            ptr, 
+                            MAX_PATH_LEN);
+                    fclose(fp);
+                    return JAA_ERROR;
+                }
+                strcpy(out.relpath, ptr);
+                break;
         }
     }
 
-    for (int i = 0; i < config.n_hosts; i++)
+    if (!out.username)
     {
-        host_free(config.pool[i]);
+        fprintf(stderr, "no username supplied in config file\n");
+        fclose(fp);
+        return JAA_ERROR;
     }
+
+    fclose(fp);
+    return JAA_OK;
+
+    
 }

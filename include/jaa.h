@@ -1,5 +1,6 @@
 #ifndef JAA
 #define JAA
+#include "darray.h"
 #include <libssh/libssh.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -9,28 +10,34 @@
 #define MAX_ADDR_LEN     128
 #define MAX_USERNAME_LEN 128
 #define MAX_PATH_LEN     128
-#define MAX_CMD_LEN      128
-#define MAX_ARG_LEN      128
 #define STDOUT_CAPACITY  1024
 
-typedef struct host {
+#define JAA_ERROR SSH_ERROR
+#define JAA_OK    SSH_OK
+
+typedef struct host 
+{
     ssh_session session;
     ssh_channel channel;
 
     char addr         [MAX_ADDR_LEN];
-    FILE *log_fp;
-    int  exit_codes   [MAX_ARG_LEN];
     char stdout_buffer[STDOUT_CAPACITY];
     char stderr_buffer[STDOUT_CAPACITY];
+    char status_buffer[STDOUT_CAPACITY];
 
-    int  progress_num, progress_denom;
-    int  n_exits;
     bool is_usable;
     bool is_busy;
-    int  id;
 } host;
 
-int  find_config_file(char *filename_out, size_t capacity);
-int  init_config_from_file(const char *filename);
-void distribute(table_style style);
+typedef struct job{
+    char username[MAX_USERNAME_LEN];
+    char relpath[];
+    darray(const char *) cmds;
+    darray(host)   pool;
+} job;
+
+int  jaa_job_init(job *out);
+void jaa_job_free(job *in);
+int  jaa_update(job j);
+
 #endif//JAA
