@@ -1,69 +1,44 @@
+#include "ui.h"
 #include "jaa.h"
-#include <unistd.h>
 #include <stdio.h>
-#include <getopt.h>
+#include <stdlib.h>
+#include <pthread.h>
 
-static char help[] =
-    "--file or -f <arg>"
-    "\n"
-    "\tassigns file <arg> as the config file containing the information on how the cmd is to be distributed"
-    "\n"
-    "--help or -h"
-    "\n"
-    "\tprint help information"
-    "\n";
+job g_job;
 
-int main(int argc, char *argv[])
+void *ui_loop()
 {
+    jaa_ui_create();
+    while(!jaa_ui_should_shutdown())
+    {
+        jaa_ui_update(g_job);
+    }
+    return NULL;
+}
 
-    extern char *optarg;
-    const struct option options[] = {
-        {.name = "file", .has_arg = 1, .flag = 0, .val = 'f'},
-        {.name = "help", .has_arg = 0, .flag = 0, .val = 'h'},
-    };
-
-    int  rc;
-    int  oc;
-    bool got_option = false;
+void *job_loop()
+{
+    jaa_job_init(&g_job);
     while(1)
     {
-        oc = getopt_long(argc, argv, "hf:", options, NULL);
-        if (oc == -1) break;
-        switch(oc)
-        {
-            case 'f':
-                rc = init_config_from_file(optarg);
-                got_option = true;
-                break;
-            case 'h':
-                printf("%s", help);
-                got_option = true;
-                return 0;
-        }
+        jaa_job_update(g_job);
+        if(jaa_job_should_shutdown(g_job))
+            break;
     }
+    return NULL;
+}
 
-    if (!got_option)
-    {
-        char filename[MAX_PATH_LEN];
-        if (!find_config_file(filename, MAX_PATH_LEN))
-        {
-            fprintf(stderr, "did not find config file in current directory\n");
-            return -1;
-        }
-        rc = init_config_from_file(filename);
-    }
+int main(void)
+{
+    g_job = jaa_job_create();
 
-    printf("status: %s\n", rc == SSH_OK ? "ok" : "not ok");
-    if (rc != SSH_OK) return -1;
-    table_style style = {
-    .width = 300,
-    .v_padding = 0,
-    .h_padding = 10,
-    .v_sep = '|',
-    .h_sep = '^',
-    .heading_sep = '.',
-    };
+    pthread_t job_thread;
+    pthread_t ui_thread;
+    pthread_create(&job_thread, NULL, job_loop, NULL);
+    pthread_create(&ui_thread, NULL, ui_loop, NULL);
+    pthread_join(ui_thread, NULL);
 
-    distribute(style);
+    jaa_ui_destroy();
+    jaa_job_destroy(g_job);
     return 0;
 }

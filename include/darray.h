@@ -10,7 +10,15 @@ typedef struct darray_header{
 }darray_header;
 
 #define darray(type) type*
-#define darray_size(arr) (assert(arr != NULL && "cannot take length of a NULL pointer"), ((darray_header *)(arr) - 1)->size);
+
+#define darray_size(arr) (assert(arr != NULL && "cannot take length of a NULL pointer"), ((darray_header *)(arr) - 1)->size)
+
+#define darray_alloc(arr) do{\
+        arr = malloc(INIT_CAPACITY * sizeof(*arr) + sizeof(darray_header));\
+        *(darray_header *)arr = (darray_header){.size = 0, .capacity = INIT_CAPACITY * sizeof(*arr)};\
+        arr = (void *)((darray_header *)arr + 1);\
+}while(0)
+
 #define darray_push_back(arr, elem) do{\
     if(arr == NULL)\
     {\
@@ -32,7 +40,7 @@ while(0)
 
 #define darray_pop(arr) (\
     assert((((darray_header *)arr - 1)->size > 0) && "no more elements to pop"),\
-    ((darray_header *)arr - 1)->size--,\
+    (void)((darray_header *)arr - 1)->size--,\
     arr[((darray_header *)arr - 1)->size]\
 )
 
@@ -45,6 +53,8 @@ while(0)
     ((darray_header *)arr - 1)->size--;\
 }\
 while(0)
+
+#define darray_free(arr) free((darray_header *)arr - 1)
 
 //int main(void)
 //{
