@@ -37,8 +37,8 @@ typedef struct job{
 
 job  jaa_job_create();
 int  jaa_job_init(job *out);
-bool jaa_job_should_shutdown();
-void jaa_job_update(job j);
-void jaa_job_destroy(job in);
+bool jaa_job_should_shutdown(job *j);
+void jaa_job_update(job *j);
+void jaa_job_destroy(job *in);
 
 #endif//JAA

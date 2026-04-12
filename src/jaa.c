@@ -104,11 +104,7 @@ static int host_verify_knownhost(host *h)
     if (rc < 0) {
         return SSH_ERROR;
     }
- 
     ssh_key_free(srv_pubkey);
-    if (rc < 0) {
-        return SSH_ERROR;
-    }
  
     state = ssh_session_is_known_server(session);
     switch (state) {
@@ -140,6 +136,28 @@ static int host_verify_knownhost(host *h)
     return SSH_OK;
 }
 
+static void host_channel_free(host *h)
+{
+    if (ssh_channel_is_open(h->channel))
+        ssh_channel_close(h->channel);
+    if (h->channel != NULL)
+        ssh_channel_free(h->channel);
+}
+
+static void host_session_free(host *h)
+{
+    if (ssh_is_connected(h->session))
+        ssh_disconnect(h->session);
+    if (h->session != NULL)
+        ssh_free(h->session);
+}
+
+static void host_free(host *h)
+{
+    host_channel_free(h);
+    host_session_free(h);
+}
+
 static void host_init(host *h, const char *username)
 {
     int rc;
@@ -151,74 +169,72 @@ static void host_init(host *h, const char *username)
     if (session == NULL)
     {
         host_printf(h, "error: %s", ssh_get_error(session));
-        return;
+        goto err;
     }
 
     rc = ssh_options_set(session, SSH_OPTIONS_HOST, (void *)addr);
     if (rc < 0)
     {
         host_printf(h, "error: %s", ssh_get_error(session));
-        return;
+        goto err;
     }
 
     rc = ssh_options_set(session, SSH_OPTIONS_USER, (void *)username);
     if (rc < 0)
     {
         host_printf(h, "error: %s", ssh_get_error(session));
-        return;
+        goto err;
     }
 
     rc = ssh_options_set(session, SSH_OPTIONS_TIMEOUT, (void *)&timeout);
     if (rc < 0)
     {
         host_printf(h, "error: %s", ssh_get_error(session));
-        return;
+        goto err;
     }
 
     rc = ssh_connect(session);
     if (rc != SSH_OK) {
         host_printf(h, "unable to connect");
-        return;
+        goto err;
     }
 
     rc = host_authenticate(h);
     if (rc != SSH_OK) {
         host_printf(h, "unable to authenticate host");
-        return;
+        goto err;
     }
 
     rc = host_verify_knownhost(h);
     if (rc != SSH_OK) {
         host_printf(h, "unable to verify host");
-        return;
+        goto err;
     }
 
     h->is_usable = true;
     return;
-}
-
-static void host_free(host *h)
-{
-    ssh_channel_close(h->channel);
-    ssh_channel_free(h->channel);
-    ssh_disconnect(h->session);
-    ssh_free(h->session);
+err:
+    host_session_free(h);
+    return;
 }
 
 static void host_exec(host *h, const char *cmd)
 {
+    host_channel_free(h);
+
     int rc;
     ssh_channel channel = ssh_channel_new(h->session);
     if (channel == NULL)
     {
         host_printf(h, "error: could not create ssh channel.");
-        return;
+        goto err;
     }
 
     rc = ssh_channel_open_session(channel);
     if (rc != SSH_OK) {
         host_printf(h, "unable to open session");
-        return;
+        ssh_channel_free(channel);
+        goto err;
     }
 
     h->channel = channel;
@@ -226,8 +242,14 @@ static void host_exec(host *h, const char *cmd)
     rc = ssh_channel_request_exec(channel, cmd);
     if (rc == SSH_ERROR)
     {
+        goto err;
         host_printf(h, "command failed");
     }
+
+    return;
+err:
+    host_channel_free(h);
+    return;
 }
 
 void host_read_io(host *h)
@@ -253,7 +275,6 @@ static void remove_unusable_hosts(darray(host) pool)
     {
         if (!pool[i].is_usable)
         {
-            host_free(&pool[i]);
             darray_remove(pool, i);
             i--;
             n_hosts--;
@@ -261,31 +282,31 @@ static void remove_unusable_hosts(darray(host) pool)
     }
 }
 
-void jaa_job_update(job j)
+void jaa_job_update(job *j)
 {
-    remove_unusable_hosts(j.pool);
-    int n_hosts = darray_size(j.pool);
+    remove_unusable_hosts(j->pool);
+    int n_hosts = darray_size(j->pool);
     for (int i = 0; i < n_hosts; i++)
     {
-        if (!j.pool[i].is_usable) continue;
-        if (!j.pool[i].is_busy && darray_size(j.cmds) > 0)
+        if (!j->pool[i].is_usable) continue;
+        if (!j->pool[i].is_busy && darray_size(j->cmds) > 0)
         {
-            char *cmd = darray_pop(j.cmds);
-            host_exec(&j.pool[i], cmd);
+            char *cmd = darray_pop(j->cmds);
+            host_exec(&j->pool[i], cmd);
             free(cmd);
-            j.pool[i].is_busy = true;
+            j->pool[i].is_busy = true;
         }
 
-        if (j.pool[i].is_busy && !ssh_channel_is_open(j.pool[i].channel))
-            j.pool[i].is_busy = false;
-        host_read_io(&j.pool[i]);
+        if (j->pool[i].is_busy && !ssh_channel_is_open(j->pool[i].channel))
+            j->pool[i].is_busy = false;
+        host_read_io(&j->pool[i]);
     }
 }
 
-bool jaa_job_should_shutdown(job j)
+bool jaa_job_should_shutdown(job *j)
 {
-    for(int i = 0; i < darray_size(j.pool); i++)
-        if (j.pool[i].is_busy || darray_size(j.cmds) > 0) 
+    for(int i = 0; i < darray_size(j->pool); i++)
+        if (j->pool[i].is_busy || darray_size(j->cmds) > 0) 
             return false;
     return true;
 }
@@ -449,12 +470,13 @@ int jaa_job_init(job *out)
     }
     return JAA_OK;
 }
-void jaa_job_destroy(job in)
+
+void jaa_job_destroy(job *in)
 {
-    for (int i = 0; i < darray_size(in.cmds); i++)
-        free(in.cmds[i]);
-    darray_free(in.cmds);
-    for (int i = 0; i < darray_size(in.pool); i++)
-        host_free(&in.pool[i]);
-    darray_free(in.pool);
+    for (int i = 0; i < darray_size(in->cmds); i++)
+        free(in->cmds[i]);
+    darray_free(in->cmds);
+    for (int i = 0; i < darray_size(in->pool); i++)
+        host_free(&in->pool[i]);
+    darray_free(in->pool);
 }

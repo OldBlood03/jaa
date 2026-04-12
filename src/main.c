@@ -10,20 +10,18 @@ void *ui_loop()
 {
     jaa_ui_create();
     while(!jaa_ui_should_shutdown())
-    {
-        jaa_ui_update(g_job);
-    }
+        jaa_ui_update(&g_job);
     return NULL;
 }
 
 void *job_loop()
 {
-    jaa_job_init(&g_job);
-    while(1)
+    int ret = jaa_job_init(&g_job);
+    if (ret == JAA_ERROR) exit(1);
+
+    while(!jaa_job_should_shutdown(&g_job))
     {
-        jaa_job_update(g_job);
-        if(jaa_job_should_shutdown(g_job))
-            break;
+        jaa_job_update(&g_job);
     }
     return NULL;
 }
@@ -39,6 +37,6 @@ int main(void)
     pthread_join(ui_thread, NULL);
 
     jaa_ui_destroy();
-    jaa_job_destroy(g_job);
+    jaa_job_destroy(&g_job);
     return 0;
 }

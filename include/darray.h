@@ -15,7 +15,7 @@ typedef struct darray_header{
 
 #define darray_alloc(arr) do{\
         arr = malloc(INIT_CAPACITY * sizeof(*arr) + sizeof(darray_header));\
-        *(darray_header *)arr = (darray_header){.size = 0, .capacity = INIT_CAPACITY * sizeof(*arr)};\
+        *(darray_header *)arr = (darray_header){.size = 0, .capacity = INIT_CAPACITY};\
         arr = (void *)((darray_header *)arr + 1);\
 }while(0)
 
@@ -23,15 +23,16 @@ typedef struct darray_header{
     if(arr == NULL)\
     {\
         arr = malloc(INIT_CAPACITY * sizeof(*arr) + sizeof(darray_header));\
-        *(darray_header *)arr = (darray_header){.size = 0, .capacity = INIT_CAPACITY * sizeof(*arr)};\
+        *(darray_header *)arr = (darray_header){.size = 0, .capacity = INIT_CAPACITY};\
         arr = (void *)((darray_header *)arr + 1);\
     }\
-    darray_header *hp = (void *)((darray_header *)arr - 1);\
+    darray_header *hp = (darray_header *)arr - 1;\
     if (hp->size >= hp->capacity)\
     {\
         hp->capacity *= 2;\
-        arr = (void *)((darray_header *)realloc(hp, sizeof(*arr) * hp->capacity + sizeof(darray_header)) + 1);\
-        assert(arr);\
+        hp = (darray_header *)realloc(hp, sizeof(*arr) * hp->capacity + sizeof(darray_header));\
+        assert(hp);\
+        arr = (void *)(hp + 1);\
     }\
     arr[hp->size] = (elem);\
     hp->size++;\
