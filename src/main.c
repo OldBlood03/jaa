@@ -1,10 +1,17 @@
 #include "ui.h"
 #include "jaa.h"
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 
 job g_job;
+
+void exit_functs(void)
+{
+    jaa_ui_destroy();
+    jaa_job_destroy(&g_job);
+}
 
 void *ui_loop()
 {
@@ -28,15 +35,13 @@ void *job_loop()
 
 int main(void)
 {
+    int error_code = atexit(&exit_functs);
+    assert(error_code == 0);
     g_job = jaa_job_create();
-
     pthread_t job_thread;
     pthread_t ui_thread;
     pthread_create(&job_thread, NULL, job_loop, NULL);
     pthread_create(&ui_thread, NULL, ui_loop, NULL);
     pthread_join(ui_thread, NULL);
-
-    jaa_ui_destroy();
-    jaa_job_destroy(&g_job);
     return 0;
 }

@@ -203,7 +203,7 @@ void check_events()
     }
 }
 
-void jaa_ui_update(job *j)
+void jaa_ui_update(const job *j)
 {
     window_clear();
     check_events();

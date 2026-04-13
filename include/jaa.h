@@ -30,14 +30,13 @@ typedef struct host
 
 typedef struct job{
     char username[MAX_USERNAME_LEN];
-    char relpath[MAX_PATH_LEN];
     darray(char *) cmds;
     darray(host)   pool;
 } job;
 
 job  jaa_job_create();
 int  jaa_job_init(job *out);
-bool jaa_job_should_shutdown(job *j);
+bool jaa_job_should_shutdown(const job *j);
 void jaa_job_update(job *j);
 void jaa_job_destroy(job *in);
 

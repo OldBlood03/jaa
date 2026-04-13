@@ -8,12 +8,16 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+
 //config file parser constants
 #define TOKEN_HOSTS    "[hosts]"
 #define TOKEN_USERNAME "[username]"
 #define TOKEN_CMD      "[cmd]"
-#define TOKEN_RELPATH  "[path]"
 #define TOKEN_COMMENT  "//"
+
+#define NULL_TERMINATOR 1
 
 #define FILENAME "dist.jaa"
 
@@ -21,7 +25,6 @@ static void host_printf(host *h, const char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    memset(h->status_buffer, 0, sizeof(h->status_buffer));
     vsnprintf(h->status_buffer, sizeof(h->status_buffer), fmt, args);
     va_end(args);
 }
@@ -303,7 +306,7 @@ void jaa_job_update(job *j)
     }
 }
 
-bool jaa_job_should_shutdown(job *j)
+bool jaa_job_should_shutdown(const job *j)
 {
     for(int i = 0; i < darray_size(j->pool); i++)
         if (j->pool[i].is_busy || darray_size(j->cmds) > 0) 
@@ -335,7 +338,6 @@ int jaa_job_init(job *out)
         NONE,
         HOSTS,
         USERNAME,
-        RELPATH,
         CMD,
     } parser_state;
     parser_state = NONE;
@@ -373,14 +375,6 @@ int jaa_job_init(job *out)
         {
             parser_state = CMD;
             continue;
-        }
-
-        token = strstr(line_ptr, TOKEN_RELPATH);
-        commented = (comment_start) && (token > comment_start);
-        if(token && !commented) 
-        { 
-            parser_state = RELPATH;
-            continue; 
         }
 
         char *ptr;
@@ -437,19 +431,6 @@ int jaa_job_init(job *out)
             case CMD:
                 char *cmd = strdup(ptr);
                 darray_push_back(out->cmds, cmd);
-                break;
-            case RELPATH:
-                if (trimmed_len > MAX_PATH_LEN) 
-                {
-                    fprintf(stderr,
-                            "parse error on line %d: encountered a path that exceeds maximum length:\narg:%s\nmaxlen:%d\n",
-                            line_count,
-                            ptr, 
-                            MAX_PATH_LEN);
-                    fclose(fp);
-                    return JAA_ERROR;
-                }
-                strcpy(out->relpath, ptr);
                 break;
         }
     }

@@ -5,45 +5,36 @@ Jaa is a tool to distribute programs through SSH. If a program takes too long to
 ```{bash}
 jaa
 ```
-Without arguments, jaa searches the current directory for a `*.jaa` file that specifies how your program should be distributed i.e. to what host machines / ssh addresses, what cmd to run, where to run it, and with what arguments. You can optionally specify a filepath with the `-f` flag.
+Jaa does not take any arguments, it searches the current directory for a `dist.jaa` file that specifies how your program should be distributed i.e. to what host machines / ssh addresses and what cmds to run.
+
 # DEPENDENCIES
 - libssh-dev
-- libtermbox2 which you can find from the [https://github.com/termbox/termbox2](termbox-github)
+- libtermbox2 which you can find from [https://github.com/termbox/termbox2](the-termbox2-github-page)
 
 # CREATING PROGRAMS FOR JAA
-Jaa does not automatically segment your program, you have to do that yourself. Jaa runs the same program on different machines with the arguments specified.
+Jaa does not automatically segment your program, you have to do that yourself. Jaa just runs the commands specified on the addresses specified.
 
 # BUILDING
 Change the INCPATHS and LIBPATHS to match where your installation of libssh is, if they are installed globally, you can remove the path `dependencies/*`
 
-# JAA FILE EXAMPLE
+# DIST.JAA FILE EXAMPLE
 ```
 //comments
-//leading white space is ignored
+//white space between tags is ignored
 
-[hosts]
+[hosts] //mandatory
 befunge.org.aalto.fi
-bit.org.aalto.fi
-bogo.org.aalto.fi
-brainfuck.org.aalto.fi
-deadfish.org.aalto.fi
 emo.org.aalto.fi
 entropy.org.aalto.fi
 
-[username]
+[username] //mandatory, login username for all the hosts
 longhuo1
 
-[cmd]
-python3 test.py
-
-[path] //this is the **absolute** path from which everything is excecuted
-/m/home/home6/69/longhuo1/unix/projects/ssh-distribute
-
-[args] //optional
-arg 1
-[logfile] //optional
-//log files go here, one line, one log file
-//the number of log files has to match the number 
+[cmd] //mandatory
+cd ~/where/my/program/is; python3 test.py arg1 arg2
+cd ~/where/my/program/is; python3 test.py arg3 arg4
+cd ~/where/my/program/is; python3 test.py arg5 arg6
+cd ~/where/my/program/is; python3 test.py arg6 arg7
 ```
 
 # EDGE CASES
